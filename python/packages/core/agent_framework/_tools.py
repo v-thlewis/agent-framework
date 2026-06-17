@@ -687,13 +687,12 @@ class FunctionTool(SerializationMixin):
             effective_context.kwargs = dict(runtime_kwargs)
 
         call_kwargs = dict(validated_arguments)
-        observable_kwargs = dict(validated_arguments)
         if self._context_parameter_name is not None and effective_context is not None:
             call_kwargs[self._context_parameter_name] = effective_context
 
         if not OBSERVABILITY_SETTINGS.ENABLED:  # type: ignore[name-defined]
             logger.info(f"Function name: {self.name}")
-            logger.debug(f"Function arguments: {observable_kwargs}")
+            logger.debug(f"Function arguments: {validated_arguments}")
             result = await self._invoke_function(call_kwargs)
             if skip_parsing:
                 logger.info(f"Function {self.name} succeeded.")
@@ -718,7 +717,7 @@ class FunctionTool(SerializationMixin):
         # Filter out framework kwargs that are not JSON serializable.
         serializable_kwargs = {
             k: v
-            for k, v in observable_kwargs.items()
+            for k, v in validated_arguments.items()
             if k
             not in {
                 "chat_options",
