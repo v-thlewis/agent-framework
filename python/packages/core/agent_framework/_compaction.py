@@ -572,10 +572,11 @@ def included_messages(messages: list[Message]) -> list[Message]:
 
 def included_token_count(messages: list[Message]) -> int:
     total = 0
-    for message in included_messages(messages):
-        token_count = _token_count(message)
-        if token_count is not None:
-            total += token_count
+    for message in messages:
+        if not message.additional_properties.get(EXCLUDED_KEY, False):
+            token_count = _token_count(message)
+            if token_count is not None:
+                total += token_count
     return total
 
 
@@ -640,7 +641,7 @@ def _included_group_ids(messages: list[Message], ordered_group_ids: list[str]) -
 
 
 def _count_included_messages(messages: list[Message]) -> int:
-    return len(included_messages(messages))
+    return sum(1 for m in messages if not m.additional_properties.get(EXCLUDED_KEY, False))
 
 
 def _count_included_tokens(messages: list[Message]) -> int:
@@ -690,11 +691,9 @@ class TruncationStrategy:
 
     async def __call__(self, messages: list[Message]) -> bool:
         ordered_group_ids = _ordered_group_ids_from_annotations(messages)
-        if self.tokenizer is not None:
-            over_limit = _count_included_tokens(messages) > self.max_n
-        else:
-            over_limit = _count_included_messages(messages) > self.max_n
-        if not over_limit:
+        use_tokens = self.tokenizer is not None
+        current_count = _count_included_tokens(messages) if use_tokens else _count_included_messages(messages)
+        if current_count <= self.max_n:
             return False
 
         grouped = _group_messages_by_id(messages)
@@ -705,16 +704,20 @@ class TruncationStrategy:
 
         changed = False
         for group_id in ordered_group_ids:
-            if self.tokenizer is not None:
-                target_met = _count_included_tokens(messages) <= self.compact_to
-            else:
-                target_met = _count_included_messages(messages) <= self.compact_to
-            if target_met:
+            if current_count <= self.compact_to:
                 break
             if group_id in protected_ids:
                 continue
             for message in grouped.get(group_id, []):
-                changed = set_excluded(message, excluded=True, reason="truncation") or changed
+                was_changed = set_excluded(message, excluded=True, reason="truncation")
+                if was_changed:
+                    if use_tokens:
+                        tc = _token_count(message)
+                        if tc is not None:
+                            current_count -= tc
+                    else:
+                        current_count -= 1
+                changed = was_changed or changed
         return changed
 
 
